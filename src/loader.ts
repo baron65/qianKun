@@ -113,13 +113,18 @@ function createElement(
   }
 
   if (scopedCSS) {
+    // 获取自定义属性 data-qiankun
     const attr = appElement.getAttribute(css.QiankunCSSRewriteAttr);
+    // 如果不存在，则设置自定义属性data-qiankun为实例id
     if (!attr) {
       appElement.setAttribute(css.QiankunCSSRewriteAttr, appInstanceId);
     }
 
+    // 查找appElement dom节点中所有的style标签
     const styleNodes = appElement.querySelectorAll('style') || [];
+
     forEach(styleNodes, (stylesheetElement: HTMLStyleElement) => {
+      // 遍历处理每个style标签中的内容
       css.process(appElement!, stylesheetElement, appInstanceId);
     });
   }
