@@ -42,6 +42,13 @@ function assertElementExist(element: Element | null | undefined, msg?: string) {
   }
 }
 
+/**
+ * 链式执行指定生命周期钩子
+ * @param hooks 
+ * @param app 
+ * @param global 
+ * @returns 
+ */
 function execHooksChain<T extends ObjectType>(
   hooks: Array<LifeCycleFn<T>>,
   app: LoadableApp<T>,
@@ -142,6 +149,7 @@ function getAppWrapperGetter(
 ) {
   return () => {
     if (useLegacyRender) {
+      // 自定义渲染挂载时，不支持strictStyleIsolation和experimentalStyleIsolation。即使用的节点是未经过编译转化的内容
       if (strictStyleIsolation) throw new QiankunError('strictStyleIsolation can not be used with legacy render!');
       if (scopedCSS) throw new QiankunError('experimentalStyleIsolation can not be used with legacy render!');
 
@@ -153,6 +161,7 @@ function getAppWrapperGetter(
     const element = elementGetter();
     assertElementExist(element, `Wrapper element for ${appInstanceId} is not existed!`);
 
+    // 主要处理影子dom的情况:需要返回根节点下的shadowRoot
     if (strictStyleIsolation && supportShadowDOM) {
       return element!.shadowRoot!;
     }
@@ -169,8 +178,9 @@ type ElementRender = (
 ) => any;
 
 /**
- * Get the render function
+ * Get the render function 获取渲染函数
  * If the legacy render function is provide, used as it, otherwise we will insert the app element to target container by qiankun
+ * 如果用户传入了render函数，则使用用户传入的 ，否则我们将由乾坤将app元素插入到目标容器上
  * @param appInstanceId
  * @param appContent
  * @param legacyRender
@@ -179,6 +189,7 @@ function getRender(appInstanceId: string, appContent: string, legacyRender?: HTM
   const render: ElementRender = ({ element, loading, container }, phase) => {
     if (legacyRender) {
       if (process.env.NODE_ENV === 'development') {
+        // 3.0版本将不支持自定义渲染函数
         console.error(
           '[qiankun] Custom rendering function is deprecated and will be removed in 3.0, you can use the container element setting instead!',
         );
@@ -187,10 +198,12 @@ function getRender(appInstanceId: string, appContent: string, legacyRender?: HTM
       return legacyRender({ loading, appContent: element ? appContent : '' });
     }
 
+    // 获取到子应用欲挂载的容器节点
     const containerElement = getContainer(container!);
 
-    // The container might have be removed after micro app unmounted.
+    // The container might have be removed after micro app unmounted. 容器可能已在卸载微应用程序后移除。
     // Such as the micro app unmount lifecycle called by a react componentWillUnmount lifecycle, after micro app unmounted, the react component might also be removed
+    // 【翻译】 当微应用的unmount函数通过一个react组件的componentWillUnmount生命周期中调用时，微应用被卸载后，这个react组件也可能被移除，
     if (phase !== 'unmounted') {
       const errorMsg = (() => {
         switch (phase) {
@@ -208,13 +221,14 @@ function getRender(appInstanceId: string, appContent: string, legacyRender?: HTM
       assertElementExist(containerElement, errorMsg);
     }
 
+    //表示容器节点存在但没有挂载包含微应用的节点时
     if (containerElement && !containerElement.contains(element)) {
-      // clear the container
+      // clear the container 清空容器中节点
       while (containerElement!.firstChild) {
         rawRemoveChild.call(containerElement, containerElement!.firstChild);
       }
 
-      // append the element to container if it exist
+      // append the element to container if it exist 将微应用节点挂载到容器节点上
       if (element) {
         rawAppendChild.call(containerElement, element);
       }
@@ -312,7 +326,11 @@ export async function loadApp<T extends ObjectType>(
   // 是否启用了 scoped CSS 【范围界定】
   const scopedCSS = isEnableScopedCSS(sandbox);
 
-  // 获取app容器元素
+  /**
+   * 创建app容器元素
+   * *用户如设置了 strictStyleIsolation，则会在子系统根节点创建影子dom,并将内容塞到影子dom中
+   * *用户设置了 scopedCSS，则会重写 子应用下所有style中的选择器
+   */
   let initialAppWrapperElement: HTMLElement | null = createElement(
     appContent,
     strictStyleIsolation,
@@ -320,7 +338,9 @@ export async function loadApp<T extends ObjectType>(
     appInstanceId,
   );
 
+  //注册子应用时的配置中是否传入了container属性。即子应用的挂载节点
   const initialContainer = 'container' in app ? app.container : undefined;
+
   const legacyRender = 'render' in app ? app.render : undefined;
 
   const render = getRender(appInstanceId, appContent, legacyRender);
@@ -329,6 +349,7 @@ export async function loadApp<T extends ObjectType>(
   // 确保每次应用加载前容器 dom 结构已经设置完毕
   render({ element: initialAppWrapperElement, loading: true, container: initialContainer }, 'loading');
 
+  // app容器元素的getter
   const initialAppWrapperGetter = getAppWrapperGetter(
     appInstanceId,
     !!legacyRender,
@@ -338,10 +359,12 @@ export async function loadApp<T extends ObjectType>(
   );
 
   let global = globalContext;
-  let mountSandbox = () => Promise.resolve();
-  let unmountSandbox = () => Promise.resolve();
+  let mountSandbox = () => Promise.resolve(); //挂载前沙盒全局变量，默认为返回promise的空函数
+  let unmountSandbox = () => Promise.resolve(); //卸载后沙盒全局变量，默认为返回promise的空函数
+
+  // 使用宽松模式【默认为严格模式】
   const useLooseSandbox = typeof sandbox === 'object' && !!sandbox.loose;
-  let sandboxContainer;
+  let sandboxContainer; //沙盒容器
   if (sandbox) {
     sandboxContainer = createSandboxContainer(
       appInstanceId,
@@ -358,6 +381,7 @@ export async function loadApp<T extends ObjectType>(
     unmountSandbox = sandboxContainer.unmount;
   }
 
+  //框架设置系统默认要做的生命周期函数处理逻辑
   const {
     beforeUnmount = [],
     afterUnmount = [],
@@ -366,10 +390,13 @@ export async function loadApp<T extends ObjectType>(
     beforeLoad = [],
   } = mergeWith({}, getAddOns(global, assetPublicPath), lifeCycles, (v1, v2) => concat(v1 ?? [], v2 ?? []));
 
+  // 执行所有 beforeLoad
   await execHooksChain(toArray(beforeLoad), app, global);
 
-  // get the lifecycle hooks from module exports
+  // 获取到子系统的exports
   const scriptExports: any = await execScripts(global, sandbox && !useLooseSandbox);
+
+  // get the lifecycle hooks from module exports 从模块导出中获取生命周期挂钩
   const { bootstrap, mount, unmount, update } = getLifecyclesFromExports(
     scriptExports,
     appName,

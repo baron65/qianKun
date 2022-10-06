@@ -39,11 +39,11 @@ export type LoadableApp<T extends ObjectType> = AppMetadata & {
   /* props pass through to app */ props?: T;
 } & (
     | {
-      // legacy mode, the render function all handled by user
+      // legacy mode, the render function all handled by user 传统模式，渲染函数全部由用户处理
       render: HTMLContentRender;
     }
     | {
-      // where the app mount to, mutual exclusive with the legacy custom render function
+      // where the app mount to, mutual exclusive with the legacy custom render function 应用程序装载到的位置，与传统自定义呈现功能互斥
       container: string | HTMLElement;
     }
   );
@@ -135,8 +135,19 @@ export type SandBox = {
   inactive: () => void;
 };
 
+/**
+ * 监听全局state改变的callback
+ * state: 更新 store 数据
+ * prevState: 变化之前的state
+ */
 export type OnGlobalStateChangeCallback = (state: Record<string, any>, prevState: Record<string, any>) => void;
 
+/**
+ * 子应用state的actions
+ * onGlobalStateChange： 监听全局状态改变
+ * setGlobalState：设置state更改
+ * offGlobalStateChange：注销该应用下的依赖
+ */
 export type MicroAppStateActions = {
   onGlobalStateChange: (callback: OnGlobalStateChangeCallback, fireImmediately?: boolean) => void;
   setGlobalState: (state: Record<string, any>) => boolean;
